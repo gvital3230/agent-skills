@@ -40,10 +40,12 @@ facts.
 - **Entry point:** `$CENTRAL_ARCHITECTURE_PATH/INDEX.yaml` — the machine-readable map of
   the central repo's three layers: `decisions/` (*why* — ADRs, read only when preparing
   a proposal or needing rationale), `rules/` (*what* — one-paragraph rules with stable
-  IDs under `## <ID>:` headings), `blocks/` (*how* — literal artifacts consumer repos
-  **copy, not interpret**). `INDEX.yaml` maps every rule ID to its file and founding
-  ADR, every block to its path and the rule IDs it implements, plus `stacks:` (golden
-  stacks for new services) and `services:` (per-service configuration rows).
+  IDs under `## <ID>:` headings), `blocks/` (*how* — copyable artifacts, each declaring
+  a `kind:`: **`literal`** blocks consumer repos copy byte-for-byte, **`skeleton`**
+  blocks whose interface is normative and whose recipe is the service's; ADR-0022 §8).
+  `INDEX.yaml` maps every rule ID to its file and founding ADR, every block to its path,
+  `kind:` and the rule IDs it implements, plus `stacks:` (golden stacks for new
+  services) and `services:` (per-service configuration rows).
   **If `INDEX.yaml` does not exist, the central repo predates this layout — use the
   Fallback section at the bottom instead of the three modes.**
 - **Project-local:** ADRs conventionally at `<project>/docs/adr/NNNN-*.md`; recorded
@@ -65,8 +67,17 @@ qualifier — only the central repo defines them.
    index names, plus any rule they link to. Do not read whole documents, unmatched
    domains, or the founding ADRs — a rule's `Why:` link is for proposals (mode 3), not
    for compliance.
-3. **Where a matched rule names a `Block:`, copy the block file literally** — never
-   reimplement or paraphrase it — and record the copy as a `PROVENANCE` line:
+3. **Where a matched rule names a `Block:`, read that block's `kind:` in `INDEX.yaml`
+   first — it decides what copying means** (ADR-0022 §8):
+   - **`kind: literal`** — copy byte-for-byte. Never reimplement or paraphrase it.
+   - **`kind: skeleton`** — the *interface* is normative, the recipe is not. Keep the
+     names, argument shape, output contract, required keys and house style exactly;
+     write the commands in the service's own toolchain. Angle-bracket tokens (`<svc>`,
+     `<toolchain>`, `<env>`) are fill-ins — substitute them. A JVM service copying
+     `blocks/shared/Makefile` keeps DEP-2's target set and each target's meaning, and
+     writes `check: ; ./gradlew check` — that is conformance, not divergence.
+
+   Either way, record the copy as a `PROVENANCE` line:
    `<block name> <source repo-relative path> <source commit sha> <date copied>`
    (ADR-0022 §8). For a **new service**: choose a golden stack from `stacks:` and stamp
    the matching scaffold (`blocks/service-<stack>/`, where it exists) plus every
@@ -78,10 +89,16 @@ mode 2's fork before proceeding.
 
 ## Mode 2 — Check / converge (auditing a repo against the rules)
 
-1. **PROVENANCE diff first.** For each `PROVENANCE` line, compare the recorded sha with
-   the central block at its recorded path, and diff the copied file's content against
-   the current block. An out-of-date copy is a mechanical finding — no interpretation
-   needed.
+1. **PROVENANCE diff first — and the block's `kind:` decides what the diff proves.**
+   For each `PROVENANCE` line, compare the recorded sha with the central block at its
+   recorded path. An **out-of-date sha is a mechanical finding for either kind**. Then:
+   - **`kind: literal`** — diff the copied file's content against the current block too;
+     a content diff is a mechanical finding on its own, no interpretation needed.
+   - **`kind: skeleton`** — **do not report a content diff as a finding.** A skeleton is
+     expected to differ: its recipe is the service's. Check it against the rule IDs in
+     the block's `implements:` list instead (step 2) — are the target names, argument
+     shape, output contract, required keys and house style still what the rules say?
+     "This Makefile runs `./gradlew` where the block runs `npm`" is not a finding.
 2. **Then the rule-level diff.** Resolve which rule IDs apply to this repo via
    `INDEX.yaml` (its `services:` row tells you which profiles and domains bind it), read
    those rule sections, and compare against repo reality. An existing
