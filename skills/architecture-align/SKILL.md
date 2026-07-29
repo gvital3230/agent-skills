@@ -1,13 +1,20 @@
 ---
 name: architecture-align
-description: Align work with a centralised architecture / ADR repo when making or recording an architectural decision, in any project. Use when choosing a technology, changing a module/service boundary, data flow, or API contract, adding a cross-cutting pattern, writing/updating an ADR, or when a change might contradict a documented architectural decision. Reads central + project ADRs, checks alignment, flags deviations for discussion, and keeps docs current.
+description: Align work with a centralised architecture repo when making or recording an architectural decision, in any project. Use when choosing a technology, changing a module/service boundary, data flow, or API contract, adding a cross-cutting pattern, writing/updating an ADR, or when a change might contradict a documented architectural decision. Resolves the task to rule IDs via the central INDEX.yaml, reads only those rules and blocks, checks alignment, records contained deviations, and routes shared changes through a central proposal.
 ---
+
+<!-- Vendored source of truth: blocks/shared/architecture-align.SKILL.md in the central
+     architecture repo — edit here, review by PR, then sync outward verbatim to:
+       1. gvital3230/agent-skills → skills/architecture-align/SKILL.md (distribution;
+          `npx skills add gvital3230/agent-skills --skill architecture-align`)
+       2. the installed copy, ~/.claude/skills/architecture-align/SKILL.md
+     All three stay byte-identical. -->
 
 # architecture-align
 
 Keep a project's decisions consistent with its centralised architecture authority, and
-keep documentation aligned during the session. Domain-agnostic — applies to application,
-service, infrastructure, data, or library repos alike.
+keep the alignment record current during the session. Domain-agnostic — applies to
+application, service, infrastructure, data, or library repos alike.
 
 ## When this applies
 
@@ -28,34 +35,105 @@ facts.
   `.claude/settings.local.json` (a nested settings file can override it for a subtree
   belonging to a different company/product). Never assume a hardcoded path. If the var
   is unset or the path is missing, **ask** the user for the clone location (or offer to
-  clone the repo named in the project's `CLAUDE.md`). Typical contents:
-  - `docs/adr/NNNN-*.md` — authoritative ADRs
-  - `docs/documentation/` (or similar) — longer-form architecture docs
-  - a model/target file if the org keeps one (e.g. C4/Structurizr `workspace.dsl`,
-    `ARCHITECTURE-TARGET.md`)
-- **Project-local:** conventionally `<project>/docs/adr/NNNN-*.md`, with longer docs in
-  `<project>/docs/`. Defer to whatever the project's `CLAUDE.md` declares if different.
+  clone the repo named in the project's `CLAUDE.md`). If the clone looks stale, note
+  that and offer to `git -C "$CENTRAL_ARCHITECTURE_PATH" pull`.
+- **Entry point:** `$CENTRAL_ARCHITECTURE_PATH/INDEX.yaml` — the machine-readable map of
+  the central repo's three layers: `decisions/` (*why* — ADRs, read only when preparing
+  a proposal or needing rationale), `rules/` (*what* — one-paragraph rules with stable
+  IDs under `## <ID>:` headings), `blocks/` (*how* — literal artifacts consumer repos
+  **copy, not interpret**). `INDEX.yaml` maps every rule ID to its file and founding
+  ADR, every block to its path and the rule IDs it implements, plus `stacks:` (golden
+  stacks for new services) and `services:` (per-service configuration rows).
+  **If `INDEX.yaml` does not exist, the central repo predates this layout — use the
+  Fallback section at the bottom instead of the three modes.**
+- **Project-local:** ADRs conventionally at `<project>/docs/adr/NNNN-*.md`; recorded
+  variances in `<project>/docs/deviations.yaml`; copied-block records in the file the
+  project keeps its `PROVENANCE` lines in. Defer to the project's `CLAUDE.md` if it
+  declares differently.
 
-## Procedure
+**Citations** (ADR-0022 §6): a bare `ADR-NNNN` always means the central repo's
+`decisions/NNNN-*.md`. A service-local decision is always qualified `<service>:ADR-NNNN`
+(e.g. `catalog:ADR-0001`). Rule IDs (`NAM-`/`TST-`/`DEP-`/`API-`/`EVT-`/`OBS-`) take no
+qualifier — only the central repo defines them.
 
-1. **Read down the chain.** Read the relevant central ADRs first (under
-   `$CENTRAL_ARCHITECTURE_PATH/docs/adr/`), then the project-local ADRs. Skim the
-   target/model file if the change is structural. The central clone is on disk — read
-   files directly. If it looks stale, note that and offer to
-   `git -C "$CENTRAL_ARCHITECTURE_PATH" pull`.
-2. **Check alignment.**
-   - *Conforms* → proceed; cite the ADR(s) you're implementing.
-   - *Not covered* → proceed, and note it's a new local decision (candidate ADR).
-   - *Conflicts* → **STOP.** State the conflict plainly: which central ADR, what it
-     says, what you'd do instead, and why. Ask the user how to proceed. Never silently
-     diverge.
-3. **Record the decision.** Once decided, write/update the project-local ADR
-   (`<project>/docs/adr/NNNN-title.md`, next number, same format as existing ones).
-4. **Flag central drift.** If the decision changes or supersedes a central ADR, say so
-   and propose the matching edit in the central repo (separate repo, separate commit) —
-   don't assume it's done.
+## Mode 1 — Comply (the default: doing work under the rules)
+
+1. **Load `INDEX.yaml`. Match the task to rule IDs** by domain prefix and title; pull
+   this service's row from `services:` for its configuration (deploy profile, registry
+   keys, tooling).
+2. **Read only the matched rules** — the `## <ID>:` sections of the rule file(s) the
+   index names, plus any rule they link to. Do not read whole documents, unmatched
+   domains, or the founding ADRs — a rule's `Why:` link is for proposals (mode 3), not
+   for compliance.
+3. **Where a matched rule names a `Block:`, copy the block file literally** — never
+   reimplement or paraphrase it — and record the copy as a `PROVENANCE` line:
+   `<block name> <source repo-relative path> <source commit sha> <date copied>`
+   (ADR-0022 §8). For a **new service**: choose a golden stack from `stacks:` and stamp
+   the matching scaffold (`blocks/service-<stack>/`, where it exists) plus every
+   stack-neutral block the matched rules name.
+4. **Cite the rule IDs** you complied with in your output.
+
+If the work at hand cannot satisfy a matched rule, that is a divergence — switch to
+mode 2's fork before proceeding.
+
+## Mode 2 — Check / converge (auditing a repo against the rules)
+
+1. **PROVENANCE diff first.** For each `PROVENANCE` line, compare the recorded sha with
+   the central block at its recorded path, and diff the copied file's content against
+   the current block. An out-of-date copy is a mechanical finding — no interpretation
+   needed.
+2. **Then the rule-level diff.** Resolve which rule IDs apply to this repo via
+   `INDEX.yaml` (its `services:` row tells you which profiles and domains bind it), read
+   those rule sections, and compare against repo reality. An existing
+   `docs/deviations.yaml` entry makes its rule a **known variance** — report it as such,
+   not as a fresh finding.
+3. **Every finding cites a rule ID.**
+4. **For each unrecorded divergence, run the blast-radius fork** (ADR-0022 §5) — the
+   containment test is mechanical, not a severity judgement: *does any artifact another
+   repo consumes change* — a registry key, a published schema, an envelope field, a
+   queue or topic name, a generated client's shape?
+   - **Contained (no):** write the entry in this repo's `docs/deviations.yaml`, keyed by
+     the rule ID, with `summary` (what the repo does instead), `since` (date), `reason`,
+     and `revisit` — a **named trigger** or `permanent — <why>` — and **proceed**. No
+     central PR, no waiting.
+   - **Shared (yes):** **STOP** — agreement in the central repo comes first. Go to
+     mode 3.
+
+## Mode 3 — Propose (changing the central repo)
+
+- **A rule change is an ordinary PR** to the central repo: edit the rule's paragraph in
+  `rules/`, keep `INDEX.yaml` in step. Rule IDs are append-only — a retired rule keeps
+  its number, marked retired; numbers are never reused.
+- **Reversing or superseding a decision takes an ADR first**: a new `decisions/` entry,
+  then the rule edit citing it. Check the rule's `Why:` link to find which decision
+  you're actually arguing with, and read that ADR before proposing.
+- Use qualified citations throughout (bare `ADR-NNNN` = central; `<service>:ADR-NNNN` =
+  that service's local ADR).
+- **Recorded deviations need no proposal.** The central repo reconciles the fleet's
+  `deviations.yaml` files in a periodic batch sweep — each entry is adopted into the
+  rule, accepted as a standing variance, or rejected with convergence work filed. When a
+  mode-2 entry will simply be picked up by the sweep, say so instead of opening a PR.
+
+## Fallback — central repo without `INDEX.yaml`
+
+An older central repo (or a clone predating the restructure) keeps its authority as ADRs
+in `docs/adr/NNNN-*.md`, with no rule layer. Then:
+
+1. List `$CENTRAL_ARCHITECTURE_PATH/docs/adr/` and match the task to relevant ADRs by
+   number and title; **read only the matched ADRs**, not the directory wholesale. Skim
+   the target/model file (e.g. a C4/Structurizr `workspace.dsl`) only if the change is
+   structural. Then read the project-local ADRs that touch the same ground.
+2. Check alignment: *conforms* → proceed, citing the ADR(s); *not covered* → proceed,
+   noting a new local decision (candidate ADR); *conflicts* → **STOP** and state the
+   conflict plainly — which central ADR, what it says, what you'd do instead, and why —
+   then ask the user. This layout has no deviation protocol, so never diverge silently.
+3. Record the outcome as a project-local ADR (`<project>/docs/adr/NNNN-title.md`, next
+   number, same format as existing ones); if the decision changes or supersedes a
+   central ADR, propose the matching central edit separately — don't assume it's done.
 
 ## Output
 
-When you act under this skill, tell the user: which ADRs you read, the alignment
-verdict (conform / new / conflict), and any central-repo change still owed.
+When you act under this skill, tell the user: which mode ran, which rule IDs (or, in
+fallback, ADRs) you resolved and read, the verdict per finding — *conform* / *known
+variance* / *contained, deviation recorded* / *shared, proposal owed* / *new local
+decision* — and any central-repo change or `deviations.yaml` write still owed.
