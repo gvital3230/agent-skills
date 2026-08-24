@@ -3,13 +3,6 @@ name: architecture-align
 description: Align work with a centralised architecture repo when making or recording an architectural decision, in any project. Use when choosing a technology, changing a module/service boundary, data flow, or API contract, adding a cross-cutting pattern, writing/updating an ADR, or when a change might contradict a documented architectural decision. Resolves the task to rule IDs via the central INDEX.yaml, reads only those rules and blocks, checks alignment, records contained deviations, and routes shared changes through a central proposal.
 ---
 
-<!-- Vendored source of truth: blocks/shared/architecture-align.SKILL.md in the central
-     architecture repo — edit here, review by PR, then sync outward verbatim to:
-       1. gvital3230/agent-skills → skills/architecture-align/SKILL.md (distribution;
-          `npx skills add gvital3230/agent-skills --skill architecture-align`)
-       2. the installed copy, ~/.claude/skills/architecture-align/SKILL.md
-     All three stay byte-identical. -->
-
 # architecture-align
 
 Keep a project's decisions consistent with its centralised architecture authority, and
